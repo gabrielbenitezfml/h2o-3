@@ -65,7 +65,7 @@ class BinaryMerge extends DTask<BinaryMerge> {
       _base = base;
       // Create fast lookups to go from chunk index to node index of that chunk
       Vec vec = _vec = frame.anyVec();
-      _chunkNode = vec==null ? null : new int[vec.nChunks()];
+      _chunkNode = vec==null ? null : MemoryManager.malloc4(vec.nChunks());
       if( vec == null ) return; // Zero-columns for Sort
       for( int i=0; i<_chunkNode.length; i++ )
         _chunkNode[i] = vec.chunkKey(i).home_node().index();
@@ -93,7 +93,7 @@ class BinaryMerge extends DTask<BinaryMerge> {
     _allRight = false;  // TODO: pass through
     int columnsInResult = (_leftSB._frame == null?0:_leftSB._frame.numCols()) +
             (_riteSB._frame == null?0:_riteSB._frame.numCols())-_numJoinCols;
-    _stringCols = new boolean[columnsInResult];
+    _stringCols = MemoryManager.mallocZ(columnsInResult);
     // check left frame first
     if (_leftSB._frame!=null) {
       for (int col = _numJoinCols; col < _leftSB._frame.numCols(); col++) {
@@ -114,7 +114,7 @@ class BinaryMerge extends DTask<BinaryMerge> {
 
   @Override
   public void compute2() {
-    _timings = new double[20];
+    _timings = MemoryManager.malloc8d(20);
     long t0 = System.nanoTime();
 
     SingleThreadRadixOrder.OXHeader leftSortedOXHeader = DKV.getGet(getSortedOXHeaderKey(/*left=*/true, _leftSB._msb));
@@ -181,7 +181,17 @@ class BinaryMerge extends DTask<BinaryMerge> {
     long retSize = leftTo - _leftFrom - 1;   // since leftTo and leftFrom are 1 outside the extremes
     assert retSize >= 0;
     if (retSize==0) { tryComplete(); return; } // nothing can match, even when allLeft
-    _retBatchSize = 268435456;    // 2^31 / 8 since Java arrays are limited to 2^31 bytes
+    int totCols = 1;
+    if (_allLeft)
+      totCols = _leftSB._frame.numCols();
+
+    if (_allRight)
+      totCols = _riteSB._frame.numCols();
+
+    if (!_allLeft && !_allRight)
+      totCols = _leftSB._frame.numCols() + _riteSB._frame.numCols();
+
+    _retBatchSize = Math.min(268435456/totCols,10000);    // 2^31 / 8 since Java arrays are limited to 2^31 bytes
     int retNBatch = (int)((retSize - 1) / _retBatchSize + 1);
     int retLastSize = (int)(retSize - (retNBatch - 1) * _retBatchSize);
 
@@ -506,8 +516,8 @@ class BinaryMerge extends DTask<BinaryMerge> {
 
     // Loop over _ret1st and _retLen and populate the batched requests for
     // each node helper.  _ret1st and _retLen are the same shape
-    final long perNodeRightLoc[] = new long[cloudSize];
-    final long perNodeLeftLoc [] = new long[cloudSize];
+    final long perNodeRightLoc[] = MemoryManager.malloc8(cloudSize);
+    final long perNodeLeftLoc [] = MemoryManager.malloc8(cloudSize);
     chunksPopulatePerNode(perNodeLeftLoc,perNodeLeftRows,perNodeRightLoc,perNodeRightRows);
     _timings[3] += ((t1=System.nanoTime()) - t0) / 1e9; t0=t1;
 
@@ -522,7 +532,7 @@ class BinaryMerge extends DTask<BinaryMerge> {
     final int numLeftCols = _leftSB._frame.numCols();
     final int numColsInResult = _leftSB._frame.numCols() + _riteSB._frame.numCols() - _numJoinCols;
     final double[][][] frameLikeChunks = new double[numColsInResult][nbatch][]; //TODO: compression via int types
-    BufferedString[][][] frameLikeChunks4Strings = new BufferedString[numColsInResult][nbatch][]; // cannot allocate before hand
+    final BufferedString[][][] frameLikeChunks4Strings = new BufferedString[numColsInResult][nbatch][]; // cannot allocate before hand
     _chunkSizes = new int[nbatch];
 
     for (int col = 0; col < numColsInResult; col++) {
