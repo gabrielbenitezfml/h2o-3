@@ -31,6 +31,8 @@ dependencies {
     exclude group: 'com.github.fommil.netlib', module: 'all'
   }
 
+  compile "ai.h2o:mojo2-runtime-api:0.13.7"
+  testRuntime "ai.h2o:mojo2-runtime-impl:0.13.7"
 
   // Test dependencies only
   testCompile "junit:junit:${junitVersion}"
